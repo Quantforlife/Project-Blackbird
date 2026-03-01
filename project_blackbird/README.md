@@ -37,6 +37,24 @@ flask --app run.py db upgrade
 flask --app run.py run
 ```
 
+
+## Run on localhost (direct view)
+
+```bash
+cd project_blackbird
+cp .env.example .env
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python run.py
+```
+
+Open in browser:
+
+- http://127.0.0.1:5000
+- http://127.0.0.1:5000/dashboard
+- http://127.0.0.1:5000/flights
+
 ## Replit deployment
 
 1. Create a new **Python Repl** and import this repository.
