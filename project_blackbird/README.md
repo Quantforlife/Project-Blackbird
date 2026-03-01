@@ -37,6 +37,28 @@ flask --app run.py db upgrade
 flask --app run.py run
 ```
 
+## Replit deployment
+
+1. Create a new **Python Repl** and import this repository.
+2. Ensure these files are in the project root:
+   - `.replit`
+   - `replit.nix`
+3. In the Replit **Shell**, install dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+4. Add Replit Secrets (Tools → Secrets):
+   - `SECRET_KEY`
+   - `API_KEY`
+   - `OFFLINE_MODE` (set to `True` for fully offline-safe behavior)
+   - `DATABASE_URL` (`sqlite:///blackbird.db` for simple Replit deploy)
+5. Click **Run**. Replit will execute `python run.py` using `.replit`.
+6. For Replit Deployments, use the deployment config already in `.replit`.
+
 ## Example cURL upload
 
 ```bash
