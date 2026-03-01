@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2 class="mb-4">Operations Dashboard</h2>
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card"><div class="card-body"><h6>Total Flights</h6><h3>{{ total_flights }}</h3></div></div></div>
+  <div class="col-md-4"><div class="card"><div class="card-body"><h6>Total Images</h6><h3>{{ total_images }}</h3></div></div></div>
+  <div class="col-md-4"><div class="card"><div class="card-body"><h6>Total Defects</h6><h3>{{ total_defects }}</h3></div></div></div>
+</div>
+<div class="card">
+  <div class="card-header">Recent Flights</div>
+  <div class="table-responsive">
+  <table class="table table-striped mb-0">
+    <thead><tr><th>ID</th><th>Name</th><th>Location</th><th>Date</th><th></th></tr></thead>
+    <tbody>
+      {% for flight in recent_flights %}
+      <tr>
+        <td>{{ flight.id }}</td><td>{{ flight.name }}</td><td>{{ flight.location }}</td><td>{{ flight.started_at }}</td>
+        <td><a class="btn btn-sm btn-outline-primary" href="/flight/{{ flight.id }}">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}
