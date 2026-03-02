@@ -1,0 +1,77 @@
+:root {
+  --bg: #070b12;
+  --panel: #0d1320;
+  --line: #1a2a44;
+  --text: #d9ecff;
+  --accent: #00e5ff;
+  --terminal: #00ff9f;
+}
+
+body.bg-app {
+  background: radial-gradient(circle at top, #0f1a2b 0%, var(--bg) 45%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.app-navbar {
+  backdrop-filter: blur(8px);
+  background: rgba(7, 11, 18, 0.9);
+  border-bottom: 1px solid var(--line);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+.metric-card h6 {
+  color: #7fa4ce;
+}
+
+.metric-card h3 {
+  color: var(--accent);
+}
+
+.app-panel .card-header,
+.card-header {
+  background: #0a1019;
+  border-bottom: 1px solid var(--line);
+  color: #9ed7ff;
+}
+
+.terminal-shell {
+  background: #020904;
+  box-shadow: inset 0 0 20px rgba(0, 255, 159, 0.12);
+}
+
+.terminal-body {
+  font-family: "Courier New", monospace;
+  color: var(--terminal);
+  min-height: 330px;
+  max-height: 330px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.terminal-cursor {
+  width: 14px;
+  height: 3px;
+  margin: 0 0 8px 16px;
+  background: var(--terminal);
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.1; }
+}
+
+.table-dark {
+  --bs-table-bg: #0a1019;
+}

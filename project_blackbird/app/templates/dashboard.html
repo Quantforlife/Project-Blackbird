@@ -1,25 +1,54 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2 class="mb-4">Operations Dashboard</h2>
+<h2 class="mb-4">Command & Mission Dashboard</h2>
 <div class="row g-3 mb-4">
-  <div class="col-md-4"><div class="card"><div class="card-body"><h6>Total Flights</h6><h3>{{ total_flights }}</h3></div></div></div>
-  <div class="col-md-4"><div class="card"><div class="card-body"><h6>Total Images</h6><h3>{{ total_images }}</h3></div></div></div>
-  <div class="col-md-4"><div class="card"><div class="card-body"><h6>Total Defects</h6><h3>{{ total_defects }}</h3></div></div></div>
+  <div class="col-md-3"><div class="card metric-card"><div class="card-body"><h6>Flight Time</h6><h3 id="m-flight-time">0s</h3></div></div></div>
+  <div class="col-md-3"><div class="card metric-card"><div class="card-body"><h6>Battery</h6><h3 id="m-battery">100%</h3></div></div></div>
+  <div class="col-md-3"><div class="card metric-card"><div class="card-body"><h6>Defects</h6><h3 id="m-defects">{{ total_defects }}</h3></div></div></div>
+  <div class="col-md-3"><div class="card metric-card"><div class="card-body"><h6>Images Captured</h6><h3 id="m-images">{{ total_images }}</h3></div></div></div>
 </div>
-<div class="card">
-  <div class="card-header">Recent Flights</div>
-  <div class="table-responsive">
-  <table class="table table-striped mb-0">
-    <thead><tr><th>ID</th><th>Name</th><th>Location</th><th>Date</th><th></th></tr></thead>
-    <tbody>
-      {% for flight in recent_flights %}
-      <tr>
-        <td>{{ flight.id }}</td><td>{{ flight.name }}</td><td>{{ flight.location }}</td><td>{{ flight.started_at }}</td>
-        <td><a class="btn btn-sm btn-outline-primary" href="/flight/{{ flight.id }}">View</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between mb-2"><span>Mission Progress</span><span id="m-progress-label">0%</span></div>
+    <div class="progress bg-dark-subtle">
+      <div id="m-progress" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;"></div>
+    </div>
   </div>
 </div>
+<div class="row g-3 mb-4">
+  <div class="col-lg-7">
+    <div class="card app-panel h-100">
+      <div class="card-header">Live Operations Map</div>
+      <div class="card-body"><div id="liveMap" style="height:380px;"></div></div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card app-panel h-100 terminal-shell">
+      <div class="card-header">Command Terminal</div>
+      <div class="card-body terminal-body" id="terminal"></div>
+      <div class="terminal-cursor"></div>
+    </div>
+  </div>
+</div>
+<div class="card app-panel">
+  <div class="card-header">Recent Flights</div>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover mb-0">
+      <thead><tr><th>ID</th><th>Name</th><th>Location</th><th>Date</th><th></th></tr></thead>
+      <tbody>
+        {% for flight in recent_flights %}
+        <tr>
+          <td>{{ flight.id }}</td><td>{{ flight.name }}</td><td>{{ flight.location }}</td><td>{{ flight.started_at }}</td>
+          <td><a class="btn btn-sm btn-outline-info" href="/flight/{{ flight.id }}">View</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">No flight data available.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard_live.js') }}"></script>
 {% endblock %}

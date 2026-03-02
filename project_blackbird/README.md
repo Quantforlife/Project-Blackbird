@@ -1,45 +1,50 @@
-# Project Blackbird – Autonomous Drone Solar Inspection System
+# Project Blackbird – Autonomous Drone Solar Inspection Platform
 
-## Setup
+## 1. Project Overview
+Project Blackbird is an autonomous drone inspection platform for utility-scale solar farms. It ingests mission imagery, tracks defect detections, streams simulated telemetry, renders a live command dashboard, and generates investor-ready PDF inspection reports.
 
-### 1) Create virtual environment
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+## 2. Architecture Diagram
+```text
+                    +-------------------------+
+                    |     Browser Client      |
+                    | Dashboard / Terminal UI |
+                    +-----------+-------------+
+                                |
+                                | HTTP + SSE
+                                v
++--------------------------- Flask App Factory -----------------------------+
+|                                                                           |
+|  Blueprints:                                                              |
+|  - dashboard_bp   (UI routes)                                             |
+|  - api_bp         (upload/report/image/health)                            |
+|  - admin_bp       (waitlist admin)                                        |
+|  - realtime_bp    (snapshot + SSE stream)                                 |
+|                                                                           |
+|  Services:                                                                |
+|  - TelemetryEngine (thread-safe realtime simulation, 1s tick)             |
+|                                                                           |
+|  Utilities:                                                               |
+|  - DataLogger                                                             |
+|  - ReportGenerator (opencv/reportlab optional with valid PDF fallback)    |
+|  - AIInference (deterministic fallback in offline mode)                   |
+|  - FlightController (simulation fallback)                                 |
+|                                                                           |
++-------------------------------+-------------------------------------------+
+                                |
+                                v
+                     SQLite (dev/test) / PostgreSQL (prod)
 ```
 
-### 2) Install dependencies
+## 3. Tech Stack
+- **Backend**: Flask, Flask-SQLAlchemy, Flask-Migrate
+- **Realtime**: Server-Sent Events (SSE)
+- **Frontend**: Bootstrap 5, Chart.js, Leaflet.js, custom dark terminal theme
+- **Reporting**: ReportLab/OpenCV optional + minimal PDF fallback
+- **Drone/AI Optional**: MAVSDK, PyMAVLink, Torch, Ultralytics
+- **Testing**: Pytest
+- **Deployment**: Gunicorn, Procfile, Replit configs
 
-```bash
-pip install -r requirements.txt
-```
-
-### 3) Configure environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` as needed.
-
-### 4) Database migration initialization
-
-```bash
-flask --app run.py db init
-flask --app run.py db migrate -m "initial"
-flask --app run.py db upgrade
-```
-
-### 5) Run server
-
-```bash
-flask --app run.py run
-```
-
-
-## Run on localhost (direct view)
-
+## 4. Setup Instructions
 ```bash
 cd project_blackbird
 cp .env.example .env
@@ -49,66 +54,68 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Open in browser:
-
+Open:
 - http://127.0.0.1:5000
 - http://127.0.0.1:5000/dashboard
-- http://127.0.0.1:5000/flights
 
-## Replit deployment
+## 5. Environment Variables
+| Variable | Description | Default |
+|---|---|---|
+| `FLASK_ENV` | `development/testing/production` | `development` |
+| `SECRET_KEY` | Flask secret key (required in production) | `dev-secret-key` |
+| `API_KEY` | Upload API auth header value | `blackbird-dev-key` |
+| `DATABASE_URL` | SQLAlchemy database URI | `sqlite:///blackbird.db` |
+| `UPLOAD_FOLDER` | Uploaded images storage path | `uploads` |
+| `REPORT_FOLDER` | Generated reports storage path | `reports` |
+| `OFFLINE_MODE` | Enables deterministic simulation | `True` |
+| `PORT` | Bind port | `5000` |
 
-1. Create a new **Python Repl** and import this repository.
-2. Ensure these files are in the project root:
-   - `.replit`
-   - `replit.nix`
-3. In the Replit **Shell**, install dependencies:
+## 6. Real-time System Explanation
+- `TelemetryEngine` starts automatically at app boot.
+- Thread-safe in-memory state updates every second.
+- SSE endpoint `/realtime/stream` emits telemetry, logs, and defect markers once per second.
+- Dashboard JavaScript subscribes to the stream and updates:
+  - Battery
+  - Flight time
+  - Mission progress
+  - Defect count
+  - Image count
+  - Moving map marker + dynamic defect overlays
+  - Palantir-style command terminal logs
 
+## 7. Deployment Guide (Render + Gunicorn)
+### Render
+1. Create new Web Service from repo.
+2. Root directory: `project_blackbird`
+3. Build command:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Start command:
+   ```bash
+   gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+   ```
+5. Set environment variables (`SECRET_KEY`, `API_KEY`, `DATABASE_URL`, `OFFLINE_MODE=False` for live mode).
+
+### Local production smoke test
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+FLASK_ENV=production SECRET_KEY=change-me PORT=5000 gunicorn run:app --bind 0.0.0.0:5000
 ```
 
-4. Add Replit Secrets (Tools → Secrets):
-   - `SECRET_KEY`
-   - `API_KEY`
-   - `OFFLINE_MODE` (set to `True` for fully offline-safe behavior)
-   - `DATABASE_URL` (`sqlite:///blackbird.db` for simple Replit deploy)
-5. Click **Run**. Replit will execute `python run.py` using `.replit`.
-6. For Replit Deployments, use the deployment config already in `.replit`.
+## 8. Demo Script for Investors
+1. Open `/dashboard` and show live telemetry updates (map + metrics + terminal).
+2. Upload test images and detection CSV via `/upload` using API key.
+3. Open `/flights` and select latest mission.
+4. Generate report from flight detail page.
+5. Download PDF from `/report/<id>`.
+6. Show `/admin/waitlist` and demonstrate lead capture via `/waitlist`.
 
-## Example cURL upload
+## 9. Future Roadmap
+- Live websocket integration with real drone hardware.
+- Multi-tenant RBAC and audit logs.
+- Defect severity scoring and predictive maintenance analytics.
+- Historical mission playback and geospatial heatmaps.
+- S3-compatible object storage and CDN acceleration.
 
-```bash
-curl -X POST http://127.0.0.1:5000/upload \
-  -H "X-API-Key: blackbird-dev-key" \
-  -F "name=Inspection 01" \
-  -F "location=Solar Farm A" \
-  -F "latitude=37.7749" \
-  -F "longitude=-122.4194" \
-  -F "images=@sample1.jpg" \
-  -F "images=@sample2.jpg" \
-  -F "detections=@detections.csv"
-```
-
-`detections.csv` format:
-
-```csv
-filename,defect_type,confidence,x,y
-sample1.jpg,hotspot,0.95,120,80
-sample2.jpg,crack,0.88,210,130
-```
-
-## Run tests
-
-```bash
-pytest -q
-```
-
-## Production DB (PostgreSQL)
-
-Set:
-
-```bash
-DATABASE_URL=postgresql+psycopg2://user:password@host:5432/project_blackbird
-```
+## 10. License
+This project is distributed under the terms of the repository `LICENSE` file.
