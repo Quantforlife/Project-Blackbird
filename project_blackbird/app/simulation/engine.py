@@ -95,10 +95,18 @@ class SimulationEngine:
             "current_waypoint_index": state["current_waypoint_index"],
         }
 
-    def _emit_cycle_events(self, frame: dict[str, object], newly_confirmed: list[dict[str, object]]) -> None:
+    def _emit_cycle_events(
+        self,
+        frame: dict[str, object],
+        detections: list[dict[str, object]],
+        newly_confirmed: list[dict[str, object]],
+    ) -> None:
         snapshot = self._build_operational_snapshot()
         self.event_bus.emit(TELEMETRY_UPDATE, snapshot)
-        self.event_bus.emit(FRAME_CAPTURED, {"timestamp": snapshot["timestamp"], "frame": frame})
+        self.event_bus.emit(
+            FRAME_CAPTURED,
+            {"timestamp": snapshot["timestamp"], "frame": frame, "detections": detections},
+        )
 
         for detection in newly_confirmed:
             self.event_bus.emit(
@@ -145,7 +153,11 @@ class SimulationEngine:
 
         self._last_frame = frame
         self._last_detections = detections
-        self._emit_cycle_events(frame=frame, newly_confirmed=newly_confirmed)
+        self._emit_cycle_events(
+            frame=frame,
+            detections=detections,
+            newly_confirmed=newly_confirmed,
+        )
 
     def _loop(self) -> None:
         while True:
