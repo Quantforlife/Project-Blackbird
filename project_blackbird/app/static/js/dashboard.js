@@ -1,124 +1,146 @@
 (() => {
+  const state = {
+    detections: new Map(),
+    lastWaypoint: null,
+  };
+
   const kpi = {
     battery: document.getElementById('kpi-battery'),
+    progress: document.getElementById('kpi-progress'),
     flightTime: document.getElementById('kpi-flight-time'),
     defects: document.getElementById('kpi-defects'),
-    images: document.getElementById('kpi-images'),
-    progress: document.getElementById('kpi-progress'),
+    waypoint: document.getElementById('kpi-waypoint'),
     signal: document.getElementById('kpi-signal'),
   };
-  const slider = document.getElementById('playback-slider');
-  const tableBody = document.querySelector('#defect-table tbody');
-  let trendData = [];
-  let severityChart;
-  let trendChart;
 
-  const initCharts = () => {
-    severityChart = new Chart(document.getElementById('severity-chart'), {
-      type: 'bar',
-      data: {
-        labels: ['Critical', 'Warning', 'Minor'],
-        datasets: [{
-          data: [0, 0, 0],
-          backgroundColor: ['#FF3B3B', '#FFB020', '#00E5FF'],
-        }],
-      },
-      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
-    });
-
-    trendChart = new Chart(document.getElementById('trend-chart'), {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Cumulative Defects',
-          data: [],
-          borderColor: '#00FFA3',
-          tension: 0.25,
-        }],
-      },
-      options: { plugins: { legend: { labels: { color: '#9CA3AF' } } } },
-    });
+  const updateKpi = (el, value) => {
+    if (!el || el.textContent === value) {
+      return;
+    }
+    el.textContent = value;
+    const card = el.closest('.kpi-card');
+    if (card) {
+      card.classList.add('kpi-updated');
+      setTimeout(() => card.classList.remove('kpi-updated'), 260);
+    }
   };
 
-  const updateKPIs = (telemetry) => {
-    kpi.battery.textContent = `${telemetry.battery}%`;
-    kpi.flightTime.textContent = `${telemetry.flight_time}s`;
-    kpi.defects.textContent = `${telemetry.active_defects}`;
-    kpi.images.textContent = `${telemetry.images_captured}`;
-    kpi.progress.textContent = `${telemetry.mission_progress}%`;
-    kpi.signal.textContent = `${telemetry.signal_strength}%`;
-    slider.value = telemetry.images_captured;
-  };
-
-  const updateTable = (defects) => {
-    tableBody.innerHTML = '';
-    defects.slice(-12).reverse().forEach((d) => {
+  const renderDetectionsTable = () => {
+    const tbody = document.querySelector('#detections-table tbody');
+    tbody.innerHTML = '';
+    [...state.detections.values()].slice(-20).reverse().forEach((d) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${d.id}</td>
-        <td>${d.type}</td>
-        <td>${d.severity}</td>
-        <td>${d.confidence}%</td>
-        <td>${d.lat.toFixed(6)}</td>
-        <td>${d.lon.toFixed(6)}</td>
+        <td>${d.panel_id}</td>
+        <td>${d.defect_type}</td>
+        <td>${(Number(d.average_confidence || d.confidence || 0) * 100).toFixed(1)}%</td>
+        <td>${d.severity || '-'}</td>
+        <td>${Number(d.geo_location?.latitude || 0).toFixed(6)}</td>
+        <td>${Number(d.geo_location?.longitude || 0).toFixed(6)}</td>
       `;
-      tableBody.appendChild(tr);
+      tbody.appendChild(tr);
     });
+    updateKpi(kpi.defects, String(state.detections.size));
   };
 
-  const updateCharts = (analytics, telemetry) => {
-    severityChart.data.datasets[0].data = [analytics.critical, analytics.warning, analytics.minor];
-    severityChart.update('none');
+  const onTelemetry = (payload) => {
+    BlackbirdMapRenderer.updateTelemetry(payload);
+    updateKpi(kpi.battery, `${Math.round(payload.battery || 0)}%`);
+    updateKpi(kpi.progress, `${Math.round(payload.mission_progress || 0)}%`);
+    updateKpi(kpi.flightTime, `${Number(payload.timestamp || 0).toFixed(1)}s`);
+    updateKpi(kpi.waypoint, `${payload.waypoint_index ?? 0}`);
+    updateKpi(kpi.signal, Number(payload.battery || 0) > 20 ? 'ONLINE' : 'DEGRADED');
 
-    trendData.push({ t: telemetry.flight_time, value: analytics.total });
-    trendData = trendData.slice(-40);
-    trendChart.data.labels = trendData.map((x) => x.t);
-    trendChart.data.datasets[0].data = trendData.map((x) => x.value);
-    trendChart.update('none');
-  };
+    BlackbirdMissionControls.updateTimeline(Number(payload.timestamp || 0), 180);
 
-  const applyPayload = (payload) => {
-    updateKPIs(payload.telemetry);
-    BlackbirdMap.update(payload);
-    BlackbirdVideo.update(payload);
-    BlackbirdTerminal.update(payload);
-    updateTable(payload.defects || []);
-    updateCharts(payload.analytics, payload.telemetry);
-  };
-
-  const wireControls = () => {
-    document.querySelectorAll('[data-command]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        await BlackbirdTelemetry.sendCommand(btn.dataset.command);
+    if (state.lastWaypoint !== payload.waypoint_index) {
+      state.lastWaypoint = payload.waypoint_index;
+      BlackbirdTerminalConsole.pushEvent({
+        timestamp: payload.timestamp,
+        type: 'GPS',
+        message: `Transitioned to waypoint ${payload.waypoint_index}`,
       });
-    });
+    }
+  };
 
-    document.querySelectorAll('[data-mode]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        document.querySelectorAll('[data-mode]').forEach((n) => n.classList.remove('active'));
-        btn.classList.add('active');
-        await BlackbirdTelemetry.setMode(btn.dataset.mode);
-      });
-    });
+  const onFrame = (payload) => {
+    BlackbirdVideoOverlay.updateFrame(payload);
+  };
 
-    slider.addEventListener('input', async () => {
-      const playbackActive = document.querySelector('[data-mode="playback"]').classList.contains('active');
-      if (playbackActive) {
-        await BlackbirdTelemetry.setPlayback(slider.value);
-      }
+  const onDetection = (payload) => {
+    const d = payload.detection || {};
+    state.detections.set(`${d.panel_id}:${d.defect_type}`, d);
+    renderDetectionsTable();
+    BlackbirdMapRenderer.updateDefect(payload);
+  };
+
+  const onMissionComplete = (payload) => {
+    BlackbirdTerminalConsole.pushEvent({
+      timestamp: payload.timestamp,
+      type: 'SYSTEM',
+      message: 'Mission complete — all waypoints scanned',
     });
+  };
+
+  const bindSocketEvents = () => {
+    BlackbirdSocketClient.on('telemetry_update', onTelemetry);
+    BlackbirdSocketClient.on('frame_update', onFrame);
+    BlackbirdSocketClient.on('detection_confirmed', onDetection);
+    BlackbirdSocketClient.on('mission_progress', BlackbirdMapRenderer.updateProgress);
+    BlackbirdSocketClient.on('terminal_event', BlackbirdTerminalConsole.pushEvent);
+    BlackbirdSocketClient.on('mission_complete', onMissionComplete);
+  };
+
+  const commandHandlers = {
+    onCommand: async (action) => {
+      await fetch(`/realtime/command/${action}`, { method: 'POST' });
+      const labels = { start: 'Mission start', pause: 'Mission paused', resume: 'Mission resumed', end: 'Mission ended' };
+      BlackbirdTerminalConsole.pushEvent({ timestamp: performance.now() / 1000, type: 'SYSTEM', message: labels[action] || action });
+    },
+    onMode: async (mode) => {
+      await fetch(`/realtime/mode/${mode}`, { method: 'POST' });
+      BlackbirdMissionControls.setPlaybackMode(mode === 'playback');
+      BlackbirdTerminalConsole.pushEvent({ timestamp: performance.now() / 1000, type: 'SYSTEM', message: `${mode.toUpperCase()} mode enabled` });
+    },
+    onSeek: async (timestamp) => {
+      const step = Math.max(0, Math.floor(timestamp));
+      await fetch(`/realtime/playback/${step}`, { method: 'POST' });
+    },
+  };
+
+  const bootSequence = (investorMode) => {
+    if (!investorMode) {
+      return;
+    }
+    const lines = [
+      '[SYS] Initializing Blackbird OS v0.9',
+      '[SYS] Loading mission profile',
+      '[GPS] RTK lock acquired',
+      '[AI] Model loaded — Edge mode',
+      '[SYS] Mission start',
+    ];
+    lines.forEach((line, idx) => {
+      setTimeout(() => {
+        const type = line.includes('[AI]') ? 'AI' : (line.includes('[GPS]') ? 'GPS' : 'SYSTEM');
+        BlackbirdTerminalConsole.pushEvent({ timestamp: idx * 0.2, type, message: line.replace(/^\[[^\]]+\]\s*/, '') });
+      }, idx * 120);
+    });
+    setTimeout(() => {
+      commandHandlers.onCommand('start');
+    }, 800);
   };
 
   const init = () => {
-    BlackbirdMap.init();
-    BlackbirdVideo.init();
-    BlackbirdTerminal.init();
-    initCharts();
-    wireControls();
+    BlackbirdMapRenderer.init();
+    BlackbirdVideoOverlay.init();
+    BlackbirdTerminalConsole.init();
 
-    BlackbirdTelemetry.onUpdate(applyPayload);
-    BlackbirdTelemetry.connect();
+    BlackbirdMissionControls.bind(commandHandlers);
+    BlackbirdSocketClient.init();
+    bindSocketEvents();
+
+    const investorMode = document.getElementById('dashboard-root').dataset.investorDemo === '1';
+    bootSequence(investorMode);
   };
 
   window.addEventListener('DOMContentLoaded', init);

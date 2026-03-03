@@ -80,7 +80,7 @@ class SocketServerBridge:
         frame_payload = {
             "frame_id": frame.get("frame_id"),
             "drone_pose": frame.get("drone_position", {}),
-            "detections": frame.get("defects_visible", []),
+            "detections": payload.get("detections", []),
         }
         self.socketio.emit("frame_update", frame_payload)
 

@@ -1,7 +1,7 @@
 """Dashboard and UI routes."""
 from __future__ import annotations
 
-from flask import Blueprint, render_template
+from flask import Blueprint, current_app, render_template
 
 from app.models import Detection, Flight, Image
 
@@ -26,6 +26,7 @@ def dashboard() -> str:
         total_images=total_images,
         total_defects=total_defects,
         recent_flights=recent_flights,
+        investor_demo_mode=current_app.config.get("INVESTOR_DEMO_MODE", False),
     )
 
 

@@ -17,6 +17,12 @@ class Config:
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", str(BASE_DIR / "uploads"))
     REPORT_FOLDER = os.getenv("REPORT_FOLDER", str(BASE_DIR / "reports"))
     OFFLINE_MODE = os.getenv("OFFLINE_MODE", "True").lower() in {"1", "true", "yes", "on"}
+    INVESTOR_DEMO_MODE = os.getenv("INVESTOR_DEMO_MODE", "True").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 class DevelopmentConfig(Config):

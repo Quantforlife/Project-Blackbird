@@ -58,7 +58,11 @@ def create_app(config_name: str = "development"):
         from app.blueprints.dashboard import dashboard_bp
         from app.blueprints.realtime import realtime_bp
         from app.extensions import db, migrate
+        from app.interface.controller_bridge import ControllerBridge
+        from app.interface.socket_server import SocketServerBridge
+        from app.realtime.controller import RealTimeController
         from app.services.runtime import get_engine
+        from app.simulation.engine import SimulationEngine
 
         app = Flask(__name__, instance_relative_config=False)
         app.config.from_object(app_config)
@@ -87,8 +91,21 @@ def create_app(config_name: str = "development"):
 
         with app.app_context():
             db.create_all()
-            engine = get_engine(offline_mode=app.config.get("OFFLINE_MODE", True))
-            engine.start()
+            telemetry_engine = get_engine(offline_mode=app.config.get("OFFLINE_MODE", True))
+            telemetry_engine.start()
+
+            sim_engine = SimulationEngine()
+            controller = RealTimeController(simulation_engine=sim_engine)
+            socket_bridge = SocketServerBridge(event_bus=sim_engine.event_bus)
+            socket_bridge.init_app(app)
+            bridge = ControllerBridge(controller, socket_bridge)
+            bridge.initialize()
+
+            if app.config.get("INVESTOR_DEMO_MODE", False):
+                bridge.start_live()
+
+            app.extensions["blackbird_controller_bridge"] = bridge
+            app.extensions["blackbird_socket_bridge"] = socket_bridge
 
         return app
     except ImportError:
@@ -97,6 +114,7 @@ def create_app(config_name: str = "development"):
             "UPLOAD_FOLDER": str(Path("uploads")),
             "REPORT_FOLDER": str(Path("reports")),
             "OFFLINE_MODE": True,
+            "INVESTOR_DEMO_MODE": True,
         }
         Path(mini_app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
         Path(mini_app.config["REPORT_FOLDER"]).mkdir(parents=True, exist_ok=True)
