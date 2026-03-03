@@ -4,6 +4,10 @@ from __future__ import annotations
 import threading
 import time
 
+from app.perception.camera import SimulatedCamera
+from app.perception.detection_store import DetectionStore
+from app.perception.pipeline import PerceptionEngine
+
 from .defects import DefectField
 from .drone import SimulatedDrone
 from .environment import SolarFarmEnvironment
@@ -22,6 +26,7 @@ class SimulationEngine:
         panel_spacing_meters: float = 6.0,
         inspection_altitude: float = 32.0,
         velocity_mps: float = 6.0,
+        perception_model: str = "simulated",
     ) -> None:
         self.environment = SolarFarmEnvironment(
             origin_latitude=origin_latitude,
@@ -43,19 +48,44 @@ class SimulationEngine:
             velocity_mps=velocity_mps,
         )
         self.drone.set_mission(self.waypoints)
+
         self.defect_field = DefectField(self.environment)
+        self.environment.defect_field = self.defect_field
+
+        self.camera = SimulatedCamera(drone=self.drone)
+        self.perception_engine = PerceptionEngine(model_type=perception_model)
+        self.detection_store = DetectionStore(min_confirmations=2)
+
+        self._last_frame: dict[str, object] = {}
+        self._last_detections: list[dict[str, object]] = []
+        self._confirmed_detections: list[dict[str, object]] = []
 
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
         self._tick_seconds = 1.0
 
+    def _process_cycle(self, delta_time: float) -> None:
+        self.drone.step(delta_time)
+        drone_state = self.drone.get_state()
+
+        frame = self.camera.capture(self.environment, drone_state)
+        detections = self.perception_engine.process_frame(frame)
+        confirmed = self.detection_store.update(
+            detections=detections,
+            timestamp=str(drone_state["timestamp"]),
+        )
+
+        self._last_frame = frame
+        self._last_detections = detections
+        self._confirmed_detections = confirmed
+
     def _loop(self) -> None:
         while True:
             with self._lock:
                 if not self._running:
                     break
-                self.drone.step(self._tick_seconds)
+                self._process_cycle(self._tick_seconds)
             time.sleep(self._tick_seconds)
 
     def start(self) -> None:
@@ -75,7 +105,7 @@ class SimulationEngine:
             self._thread.join(timeout=1.5)
 
     def reset(self) -> None:
-        """Reset drone to initial mission state."""
+        """Reset drone and perception state to initial mission state."""
         self.pause()
         with self._lock:
             first = self.waypoints[0]
@@ -86,14 +116,19 @@ class SimulationEngine:
                 velocity_mps=6.0,
             )
             self.drone.set_mission(self.waypoints)
+            self.camera = SimulatedCamera(drone=self.drone)
+            self.detection_store = DetectionStore(min_confirmations=2)
+            self._last_frame = {}
+            self._last_detections = []
+            self._confirmed_detections = []
 
     def step(self, delta_time: float = 1.0) -> None:
         """Manual deterministic stepping for testability."""
         with self._lock:
-            self.drone.step(delta_time)
+            self._process_cycle(delta_time)
 
-    def get_current_state(self) -> dict[str, float | int | str | list[dict[str, object]]]:
-        """Return complete deterministic simulation state."""
+    def get_current_state(self) -> dict[str, object]:
+        """Return complete deterministic simulation and perception state."""
         with self._lock:
             drone_state = self.drone.get_state()
             visible_defects = self.defect_field.get_defects_in_view(
@@ -117,4 +152,8 @@ class SimulationEngine:
                     }
                     for d in visible_defects
                 ],
+                "last_frame": self._last_frame,
+                "last_detections": list(self._last_detections),
+                "confirmed_detections": self.detection_store.confirmed_detections(),
+                "perception_stats": self.perception_engine.get_stats(),
             }
