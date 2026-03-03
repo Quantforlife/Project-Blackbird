@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Waitlist Admin</h2>
+<table class="table table-bordered">
+  <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+    <tr><td>{{ entry.name }}</td><td>{{ entry.email }}</td><td>{{ entry.company or '' }}</td><td>{{ entry.created_at }}</td></tr>
+  {% else %}
+    <tr><td colspan="4">No entries.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
