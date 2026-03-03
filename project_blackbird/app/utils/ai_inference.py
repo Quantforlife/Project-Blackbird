@@ -26,26 +26,29 @@ class AIInference:
 
     def infer(self, frame: Any) -> list[dict[str, float | str]]:
         """Run inference or return deterministic dummy detections."""
+        fallback_detections = [
+            {
+                "defect_type": "hotspot",
+                "confidence": 0.91,
+                "x": 120.0,
+                "y": 80.0,
+            },
+            {
+                "defect_type": "crack",
+                "confidence": 0.84,
+                "x": 240.0,
+                "y": 145.0,
+            },
+        ]
+
         if self.model is None:
-            return [
-                {
-                    "defect_type": "hotspot",
-                    "confidence": 0.91,
-                    "x": 120.0,
-                    "y": 80.0,
-                },
-                {
-                    "defect_type": "crack",
-                    "confidence": 0.84,
-                    "x": 240.0,
-                    "y": 145.0,
-                },
-            ]
+            return fallback_detections
 
         try:
             results = self.model.predict(frame)
         except Exception:
-            return self.infer(None)
+            self.model = None
+            return fallback_detections
 
         parsed: list[dict[str, float | str]] = []
         for result in results:
