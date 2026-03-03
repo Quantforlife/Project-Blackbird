@@ -15,13 +15,23 @@ class DetectionStore:
     def _key(panel_id: str, defect_type: str) -> str:
         return f"{panel_id}:{defect_type}"
 
+    def _record_to_output(self, rec: dict[str, object]) -> dict[str, object]:
+        return {
+            "panel_id": rec["panel_id"],
+            "defect_type": rec["defect_type"],
+            "first_seen_timestamp": rec["first_seen_timestamp"],
+            "confirmation_count": rec["confirmation_count"],
+            "average_confidence": round(float(rec["average_confidence"]), 4),
+            "geo_location": rec["latest_detection"]["geo_location"],
+        }
+
     def update(
         self,
         detections: list[dict[str, object]],
         timestamp: str,
     ) -> list[dict[str, object]]:
-        """Update store with frame detections and return confirmed records."""
-        confirmed: list[dict[str, object]] = []
+        """Update store with frame detections and return newly confirmed records."""
+        newly_confirmed: list[dict[str, object]] = []
         seen_keys: set[str] = set()
 
         for detection in detections:
@@ -42,6 +52,7 @@ class DetectionStore:
                     "confirmation_count": 1,
                     "average_confidence": confidence,
                     "latest_detection": detection,
+                    "confirmed": False,
                 }
             else:
                 rec = self._records[key]
@@ -54,33 +65,19 @@ class DetectionStore:
                 rec["latest_detection"] = detection
 
             rec = self._records[key]
-            if int(rec["confirmation_count"]) >= self.min_confirmations:
-                confirmed.append(
-                    {
-                        "panel_id": rec["panel_id"],
-                        "defect_type": rec["defect_type"],
-                        "first_seen_timestamp": rec["first_seen_timestamp"],
-                        "confirmation_count": rec["confirmation_count"],
-                        "average_confidence": round(float(rec["average_confidence"]), 4),
-                        "geo_location": rec["latest_detection"]["geo_location"],
-                    }
-                )
+            if (
+                int(rec["confirmation_count"]) >= self.min_confirmations
+                and not bool(rec["confirmed"])
+            ):
+                rec["confirmed"] = True
+                newly_confirmed.append(self._record_to_output(rec))
 
-        return confirmed
+        return newly_confirmed
 
     def confirmed_detections(self) -> list[dict[str, object]]:
         """Return all detections that reached confirmation threshold."""
         output: list[dict[str, object]] = []
         for rec in self._records.values():
-            if int(rec["confirmation_count"]) >= self.min_confirmations:
-                output.append(
-                    {
-                        "panel_id": rec["panel_id"],
-                        "defect_type": rec["defect_type"],
-                        "first_seen_timestamp": rec["first_seen_timestamp"],
-                        "confirmation_count": rec["confirmation_count"],
-                        "average_confidence": round(float(rec["average_confidence"]), 4),
-                        "geo_location": rec["latest_detection"]["geo_location"],
-                    }
-                )
+            if bool(rec.get("confirmed", False)):
+                output.append(self._record_to_output(rec))
         return output
