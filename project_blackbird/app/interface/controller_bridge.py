@@ -35,23 +35,27 @@ class ControllerBridge:
     def start_live(self) -> dict[str, object]:
         started = self.controller.start_live()
         status = "running" if started else "already_running"
-        return {"mode": "live", "status": status}
+        return {"mode": "live", "status": status, "controller": self.controller.status()}
 
     def pause(self) -> dict[str, object]:
         self.controller.pause()
-        return {"mode": "live", "status": "paused"}
+        return {"mode": "live", "status": "paused", "controller": self.controller.status()}
 
     def resume(self) -> dict[str, object]:
         self.controller.resume()
-        return {"mode": "live", "status": "running"}
+        return {"mode": "live", "status": "running", "controller": self.controller.status()}
 
     def reset(self) -> dict[str, object]:
         self.controller.reset()
-        return {"mode": "idle", "status": "reset"}
+        return {"mode": "idle", "status": "reset", "controller": self.controller.status()}
+
+    def end(self) -> dict[str, object]:
+        self.controller.end()
+        return {"mode": "idle", "status": "ended", "controller": self.controller.status()}
 
     def start_playback(self) -> dict[str, object]:
         self.controller.start_playback()
-        return {"mode": "playback", "status": "ready"}
+        return {"mode": "playback", "status": "ready", "controller": self.controller.status()}
 
     def seek(self, timestamp: float) -> dict[str, object] | None:
         state = self.controller.seek(timestamp)

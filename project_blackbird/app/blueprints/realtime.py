@@ -67,8 +67,10 @@ def command(action: str) -> Response:
         return jsonify(bridge.pause())
     if action == "resume":
         return jsonify(bridge.resume())
-    if action in {"end", "reset"}:
+    if action == "reset":
         return jsonify(bridge.reset())
+    if action == "end":
+        return jsonify(bridge.end())
     return jsonify({"error": "unknown_action", "action": action}), 400
 
 

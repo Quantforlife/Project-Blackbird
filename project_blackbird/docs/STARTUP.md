@@ -1,82 +1,61 @@
-# Project Blackbird Startup Guide
+# Project Blackbird Startup (Windows-first)
 
-## 1) Create virtual environment
+## One-command setup
 
-```bash
+```bat
+setup.bat
+```
+
+## One-command launch
+
+```bat
+run_app.bat
+```
+
+## Launch in production mode
+
+```bat
+run_app.bat production
+```
+
+## Environment variables
+
+- `FLASK_APP`: Flask entrypoint module (`run.py`).
+- `FLASK_ENV`: Runtime mode (`development`, `production`, or `testing`).
+- `SECRET_KEY`: Flask secret key used for sessions/security.
+- `API_KEY`: API key used by protected API endpoints.
+- `DATABASE_URL`: SQLAlchemy DB connection string.
+- `UPLOAD_FOLDER`: Upload directory path.
+- `REPORT_FOLDER`: Report output directory path.
+- `OFFLINE_MODE`: Enables deterministic offline telemetry/perception stubs (`True`/`False`).
+- `INVESTOR_DEMO_MODE`: Auto-starts live mission at app boot (`True`/`False`).
+- `PORT`: HTTP port used by `run.py`.
+
+## Troubleshooting
+
+### `run_app.bat` says virtualenv is missing
+
+```bat
+setup.bat
+```
+
+### Python launcher not found
+
+Install Python 3.10+ from python.org and ensure `py` is available in PATH, then run:
+
+```bat
+setup.bat
+```
+
+### Port 5000 already in use
+
+`run_app.bat` attempts to kill stale listeners automatically, then starts the app again.
+
+### Verify installation manually
+
+```bat
 cd project_blackbird
-python -m venv .venv
-source .venv/bin/activate
+.venv\Scripts\activate.bat
+python verify_boot.py
+pytest -q
 ```
-
-## 2) Install requirements
-
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-## 3) Environment setup
-
-```bash
-cp .env.example .env
-```
-
-Update `.env` values as needed.
-
-## 4) Development run
-
-```bash
-export FLASK_ENV=development
-python run.py
-```
-
-## 5) Production run
-
-```bash
-export FLASK_ENV=production
-python run.py
-```
-
-## 6) Gunicorn run
-
-```bash
-gunicorn -w 2 -k gthread -b 0.0.0.0:5000 run:app
-```
-
-## 7) Enable investor demo mode
-
-```bash
-export INVESTOR_DEMO_MODE=True
-python run.py
-```
-
-## 8) Clear timeline state
-
-Use reset command route:
-
-```bash
-curl -X POST http://127.0.0.1:5000/realtime/command/reset
-```
-
-## 9) Safe reset / restart sequence
-
-1. Pause active mission:
-   ```bash
-   curl -X POST http://127.0.0.1:5000/realtime/command/pause
-   ```
-2. Reset runtime:
-   ```bash
-   curl -X POST http://127.0.0.1:5000/realtime/command/reset
-   ```
-3. Restart mission:
-   ```bash
-   curl -X POST http://127.0.0.1:5000/realtime/command/start
-   ```
-
-## Startup Order Enforced in App Factory
-
-1. Initialize extensions
-2. Initialize socket
-3. Initialize controller
-4. Register routes
-5. Register event subscriptions

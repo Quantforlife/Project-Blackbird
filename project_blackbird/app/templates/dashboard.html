@@ -7,7 +7,6 @@
     <article class="kpi-card" data-kpi="flight_time"><h6>Flight Time</h6><p id="kpi-flight-time">0s</p></article>
     <article class="kpi-card" data-kpi="defects"><h6>Confirmed Defects</h6><p id="kpi-defects">0</p></article>
     <article class="kpi-card" data-kpi="waypoint"><h6>Active Waypoint</h6><p id="kpi-waypoint">0</p></article>
-    <article class="kpi-card" data-kpi="signal"><h6>Signal Status</h6><p id="kpi-signal">ONLINE</p></article>
     <article class="kpi-card" data-kpi="connection"><h6>Connection</h6><p id="connection-status" data-status="connecting">CONNECTING</p></article>
   </section>
 
@@ -17,8 +16,8 @@
       <button class="btn control-btn" data-live-command="start">Start</button>
       <button class="btn control-btn" data-live-command="pause">Pause</button>
       <button class="btn control-btn" data-live-command="resume">Resume</button>
+      <button class="btn control-btn danger" data-live-command="end">Stop</button>
       <button class="btn control-btn" data-live-command="reset">Reset</button>
-      <button class="btn control-btn danger" data-live-command="end">End</button>
 
       <span class="mx-2 divider"></span>
 
@@ -40,7 +39,7 @@
   </section>
 
   <section class="row g-3 mb-3">
-    <div class="col-xl-7 col-lg-7">
+    <div class="col-xl-8 col-lg-8">
       <div class="panel map-panel">
         <div class="panel-header d-flex justify-content-between">
           <span>Live Geospatial Mission Map</span>
@@ -52,7 +51,29 @@
         </div>
       </div>
     </div>
-    <div class="col-xl-5 col-lg-5">
+    <div class="col-xl-4 col-lg-4 d-flex flex-column gap-3">
+      <div class="panel map-filter-panel">
+        <div class="panel-header">Map Filters</div>
+        <div class="panel-body filter-grid">
+          <label>Tiles
+            <select id="map-tile-mode" class="form-select control-select w-100">
+              <option value="satellite">Satellite</option>
+              <option value="street">Street</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="toggle-path" checked> Show Mission Path</label>
+          <label><input type="checkbox" class="defect-toggle" value="hotspot" checked> Hotspot</label>
+          <label><input type="checkbox" class="defect-toggle" value="crack" checked> Crack</label>
+          <label><input type="checkbox" class="defect-toggle" value="soiling" checked> Soiling</label>
+          <label>Flight Filter
+            <select id="flight-status-filter" class="form-select control-select w-100">
+              <option value="all">All</option>
+              <option value="with_defects">With Defects</option>
+            </select>
+          </label>
+        </div>
+      </div>
       <div class="panel video-panel">
         <div class="panel-header">Edge Inference Video Overlay</div>
         <div class="panel-body">

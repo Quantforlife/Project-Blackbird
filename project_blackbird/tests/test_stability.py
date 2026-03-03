@@ -1,6 +1,7 @@
 """Stability and lifecycle tests."""
 from __future__ import annotations
 
+import tracemalloc
 import time
 
 from app.interface.controller_bridge import ControllerBridge
@@ -85,6 +86,7 @@ def test_satellite_map_config_loads() -> None:
     text = open("app/static/js/map_renderer.js", encoding="utf-8").read()
     assert "World_Imagery" in text
     assert "tileerror" in text
+    assert "map-tile-mode" in open("app/templates/dashboard.html", encoding="utf-8").read()
 
 
 def test_socket_server_registers_once() -> None:
@@ -98,3 +100,31 @@ def test_socket_server_registers_once() -> None:
     bridge.stop()
     bus.shutdown()
     assert once == twice
+
+
+def test_long_run_memory_stays_bounded_for_timeline() -> None:
+    engine = SimulationEngine(rows=1, columns=3)
+    controller = RealTimeController(
+        simulation_engine=engine,
+        event_bus=engine.event_bus,
+        tick_seconds=0.001,
+        max_history_length=300,
+    )
+    tracemalloc.start()
+    start_mem = tracemalloc.get_traced_memory()[0]
+    for _ in range(1200):
+        engine.step(0.01)
+        controller._logical_time = round(controller._logical_time + 0.01, 6)
+        controller.timeline.add(controller._compose_snapshot())
+    end_mem = tracemalloc.get_traced_memory()[0]
+    tracemalloc.stop()
+
+    assert len(controller.timeline.get_all()) == 300
+    assert end_mem - start_mem < 5_000_000
+
+
+def test_socket_client_has_reconnect_and_single_init_guards() -> None:
+    text = open("app/static/js/socket_client.js", encoding="utf-8").read()
+    assert "reconnectionAttempts: Infinity" in text
+    assert "if (initialized)" in text
+    assert "socket.off(eventName, callback)" in text

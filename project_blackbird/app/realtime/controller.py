@@ -138,9 +138,28 @@ class RealTimeController:
         with self._lock:
             self._running = False
             self._paused = False
+            self.live_mode = False
+            self.playback_mode = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
         self._thread = None
+
+
+    def status(self) -> dict[str, object]:
+        """Return deterministic controller status."""
+        with self._lock:
+            return {
+                "live_mode": self.live_mode,
+                "playback_mode": self.playback_mode,
+                "running": self._running,
+                "paused": self._paused,
+                "logical_time": self._logical_time,
+                "timeline_size": len(self.timeline.get_all()),
+            }
+
+    def end(self) -> None:
+        """End mission loop without resetting timeline history."""
+        self.stop()
 
     def start_playback(self) -> None:
         """Switch to playback mode."""

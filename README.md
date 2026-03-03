@@ -4,7 +4,20 @@ This repository contains the runnable app in:
 
 - `project_blackbird/`
 
-## Localhost quick start
+## Windows quick start
+
+```bat
+setup.bat
+run_app.bat
+```
+
+Production mode:
+
+```bat
+run_app.bat production
+```
+
+## Linux/macOS quick start
 
 ```bash
 cd project_blackbird
@@ -19,13 +32,3 @@ Then open:
 
 - http://127.0.0.1:5000
 - http://127.0.0.1:5000/dashboard
-
-## If import looks empty in Replit
-
-When importing this repo, set the run command from the `project_blackbird` directory:
-
-```bash
-cd project_blackbird && python run.py
-```
-
-The app files are intentionally nested under `project_blackbird/`.
