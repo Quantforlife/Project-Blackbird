@@ -27,25 +27,14 @@ class AIInference:
     def infer(self, frame: Any) -> list[dict[str, float | str]]:
         """Run inference or return deterministic dummy detections."""
         if self.model is None:
-            return [
-                {
-                    "defect_type": "hotspot",
-                    "confidence": 0.91,
-                    "x": 120.0,
-                    "y": 80.0,
-                },
-                {
-                    "defect_type": "crack",
-                    "confidence": 0.84,
-                    "x": 240.0,
-                    "y": 145.0,
-                },
-            ]
+            return self._fallback_detections()
 
         try:
             results = self.model.predict(frame)
         except Exception:
-            return self.infer(None)
+            # Prevent recursive retries when the backend is consistently failing.
+            self.model = None
+            return self._fallback_detections()
 
         parsed: list[dict[str, float | str]] = []
         for result in results:
@@ -59,3 +48,20 @@ class AIInference:
                     }
                 )
         return parsed
+
+    @staticmethod
+    def _fallback_detections() -> list[dict[str, float | str]]:
+        return [
+            {
+                "defect_type": "hotspot",
+                "confidence": 0.91,
+                "x": 120.0,
+                "y": 80.0,
+            },
+            {
+                "defect_type": "crack",
+                "confidence": 0.84,
+                "x": 240.0,
+                "y": 145.0,
+            },
+        ]
