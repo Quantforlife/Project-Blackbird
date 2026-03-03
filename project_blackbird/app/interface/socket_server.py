@@ -23,6 +23,7 @@ class SocketServerBridge:
         self._subscriptions: list[tuple[str, Callable[[dict[str, object]], None]]] = []
         self._last_telemetry_signature: tuple[object, ...] | None = None
         self._lock = Lock()
+        self._started = False
 
     @staticmethod
     def _create_socketio():
@@ -44,6 +45,12 @@ class SocketServerBridge:
         """Initialize socket layer with flask app."""
         if hasattr(self.socketio, "init_app"):
             self.socketio.init_app(app)
+
+    def _safe_emit(self, event_name: str, payload: dict[str, object]) -> None:
+        try:
+            self.socketio.emit(event_name, payload)
+        except Exception:
+            return
 
     def _telemetry_payload(self, payload: dict[str, object]) -> dict[str, object]:
         telemetry = payload.get("telemetry", {})
@@ -73,7 +80,7 @@ class SocketServerBridge:
             if signature == self._last_telemetry_signature:
                 return
             self._last_telemetry_signature = signature
-        self.socketio.emit("telemetry_update", mapped)
+        self._safe_emit("telemetry_update", mapped)
 
     def _on_frame(self, payload: dict[str, object]) -> None:
         frame = payload.get("frame", {})
@@ -82,13 +89,13 @@ class SocketServerBridge:
             "drone_pose": frame.get("drone_position", {}),
             "detections": payload.get("detections", []),
         }
-        self.socketio.emit("frame_update", frame_payload)
+        self._safe_emit("frame_update", frame_payload)
 
     def _on_detection_confirmed(self, payload: dict[str, object]) -> None:
         detection = payload.get("detection", {})
-        self.socketio.emit("detection_confirmed", payload)
+        self._safe_emit("detection_confirmed", payload)
         geo = detection.get("geo_location", {})
-        self.socketio.emit(
+        self._safe_emit(
             "terminal_event",
             {
                 "timestamp": payload.get("timestamp"),
@@ -101,14 +108,14 @@ class SocketServerBridge:
         )
 
     def _on_progress(self, payload: dict[str, object]) -> None:
-        self.socketio.emit("mission_progress", payload)
+        self._safe_emit("mission_progress", payload)
 
     def _on_battery(self, payload: dict[str, object]) -> None:
-        self.socketio.emit("battery_update", payload)
+        self._safe_emit("battery_update", payload)
 
     def _on_complete(self, payload: dict[str, object]) -> None:
-        self.socketio.emit("mission_complete", payload)
-        self.socketio.emit(
+        self._safe_emit("mission_complete", payload)
+        self._safe_emit(
             "terminal_event",
             {
                 "timestamp": payload.get("timestamp"),
@@ -119,20 +126,31 @@ class SocketServerBridge:
 
     def start(self) -> None:
         """Register all event subscribers."""
-        mapping: list[tuple[str, Callable[[dict[str, object]], None]]] = [
-            (TELEMETRY_UPDATE, self._on_telemetry),
-            (FRAME_CAPTURED, self._on_frame),
-            (DETECTION_CONFIRMED, self._on_detection_confirmed),
-            (MISSION_PROGRESS, self._on_progress),
-            (BATTERY_UPDATE, self._on_battery),
-            (MISSION_COMPLETE, self._on_complete),
-        ]
-        for event_type, callback in mapping:
-            self.event_bus.subscribe(event_type, callback)
-            self._subscriptions.append((event_type, callback))
+        with self._lock:
+            if self._started:
+                return
+            mapping: list[tuple[str, Callable[[dict[str, object]], None]]] = [
+                (TELEMETRY_UPDATE, self._on_telemetry),
+                (FRAME_CAPTURED, self._on_frame),
+                (DETECTION_CONFIRMED, self._on_detection_confirmed),
+                (MISSION_PROGRESS, self._on_progress),
+                (BATTERY_UPDATE, self._on_battery),
+                (MISSION_COMPLETE, self._on_complete),
+            ]
+            for event_type, callback in mapping:
+                self.event_bus.subscribe(event_type, callback)
+                self._subscriptions.append((event_type, callback))
+            self._started = True
 
     def stop(self) -> None:
         """Unsubscribe all handlers."""
-        for event_type, callback in self._subscriptions:
-            self.event_bus.unsubscribe(event_type, callback)
-        self._subscriptions.clear()
+        with self._lock:
+            for event_type, callback in self._subscriptions:
+                self.event_bus.unsubscribe(event_type, callback)
+            self._subscriptions.clear()
+            self._started = False
+            self._last_telemetry_signature = None
+
+    @property
+    def subscription_count(self) -> int:
+        return len(self._subscriptions)

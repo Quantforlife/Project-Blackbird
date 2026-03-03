@@ -1,6 +1,7 @@
 window.BlackbirdTerminalConsole = (() => {
   let terminal;
   const seen = new Set();
+  const seenQueue = [];
   const levelClass = {
     SYSTEM: 'terminal-system',
     AI: 'terminal-ai',
@@ -25,6 +26,7 @@ window.BlackbirdTerminalConsole = (() => {
       return;
     }
     seen.add(key);
+    seenQueue.push(key);
 
     const line = document.createElement('div');
     line.className = `terminal-line ${levelClass[type] || 'terminal-system'}`;
@@ -36,7 +38,19 @@ window.BlackbirdTerminalConsole = (() => {
     while (terminal.children.length > maxLines) {
       terminal.removeChild(terminal.firstChild);
     }
+    while (seenQueue.length > maxLines * 2) {
+      const oldest = seenQueue.shift();
+      seen.delete(oldest);
+    }
   };
 
-  return { init, pushEvent };
+  const clear = () => {
+    if (terminal) {
+      terminal.innerHTML = '';
+    }
+    seen.clear();
+    seenQueue.length = 0;
+  };
+
+  return { init, pushEvent, clear };
 })();

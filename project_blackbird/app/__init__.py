@@ -58,11 +58,7 @@ def create_app(config_name: str = "development"):
         from app.blueprints.dashboard import dashboard_bp
         from app.blueprints.realtime import realtime_bp
         from app.extensions import db, migrate
-        from app.interface.controller_bridge import ControllerBridge
-        from app.interface.socket_server import SocketServerBridge
-        from app.realtime.controller import RealTimeController
-        from app.services.runtime import get_engine
-        from app.simulation.engine import SimulationEngine
+        from app.services.runtime import initialize_runtime, shutdown_runtime
 
         app = Flask(__name__, instance_relative_config=False)
         app.config.from_object(app_config)
@@ -73,9 +69,16 @@ def create_app(config_name: str = "development"):
         Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
         Path(app.config["REPORT_FOLDER"]).mkdir(parents=True, exist_ok=True)
 
+        # 1. Initialize extensions
         db.init_app(app)
         migrate.init_app(app, db)
 
+        # 2-5. Initialize socket + controller runtime before routes consume it
+        with app.app_context():
+            db.create_all()
+            initialize_runtime(app)
+
+        # 4. Register routes
         app.register_blueprint(dashboard_bp)
         app.register_blueprint(api_bp)
         app.register_blueprint(admin_bp)
@@ -89,24 +92,9 @@ def create_app(config_name: str = "development"):
             response.headers["Cache-Control"] = "no-store"
             return response
 
-        with app.app_context():
-            db.create_all()
-            telemetry_engine = get_engine(offline_mode=app.config.get("OFFLINE_MODE", True))
-            telemetry_engine.start()
+        import atexit
 
-            sim_engine = SimulationEngine()
-            controller = RealTimeController(simulation_engine=sim_engine)
-            socket_bridge = SocketServerBridge(event_bus=sim_engine.event_bus)
-            socket_bridge.init_app(app)
-            bridge = ControllerBridge(controller, socket_bridge)
-            bridge.initialize()
-
-            if app.config.get("INVESTOR_DEMO_MODE", False):
-                bridge.start_live()
-
-            app.extensions["blackbird_controller_bridge"] = bridge
-            app.extensions["blackbird_socket_bridge"] = socket_bridge
-
+        atexit.register(shutdown_runtime)
         return app
     except ImportError:
         mini_app = _MiniApp()

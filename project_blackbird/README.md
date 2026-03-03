@@ -136,5 +136,5 @@ This project is distributed under the terms of the repository `LICENSE` file.
   }
   ```
 - **Video Overlay Pipeline**: `video_overlay.js` paints synthetic frames on `<canvas>`, then overlays color-coded boxes from `video.boxes` using frame coordinates.
-- **Mapping Pipeline**: `map.js` renders mission path polyline, current drone marker, and defect markers; playback scrubber requests `POST /realtime/playback/<index>`.
-- **Terminal Pipeline**: `terminal.js` applies timestamped level-colored lines (`INFO/WARN/ERROR/AI/GPS/NET/SYS`) with scanline styling and animated insert.
+- **Mapping Pipeline**: `map_renderer.js` renders mission path polyline, current drone marker, and defect markers; playback scrubber requests `POST /realtime/playback/<index>`.
+- **Terminal Pipeline**: `terminal_console.js` applies timestamped level-colored lines (`SYSTEM/AI/GPS/WARN/ERROR`) with scanline styling and animated insert.

@@ -8,6 +8,12 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _as_bool(value: str, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 class Config:
     """Base configuration."""
 
@@ -16,13 +22,8 @@ class Config:
     API_KEY = os.getenv("API_KEY", "blackbird-dev-key")
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", str(BASE_DIR / "uploads"))
     REPORT_FOLDER = os.getenv("REPORT_FOLDER", str(BASE_DIR / "reports"))
-    OFFLINE_MODE = os.getenv("OFFLINE_MODE", "True").lower() in {"1", "true", "yes", "on"}
-    INVESTOR_DEMO_MODE = os.getenv("INVESTOR_DEMO_MODE", "True").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    OFFLINE_MODE = _as_bool(os.getenv("OFFLINE_MODE"), True)
+    INVESTOR_DEMO_MODE = _as_bool(os.getenv("INVESTOR_DEMO_MODE"), True)
 
 
 class DevelopmentConfig(Config):

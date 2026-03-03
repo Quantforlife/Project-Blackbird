@@ -4,6 +4,7 @@ window.BlackbirdMissionControls = (() => {
   let onSeek = () => {};
   let onCommand = () => {};
   let onMode = () => {};
+  let keyHandler = null;
 
   const slider = () => document.getElementById('timeline-slider');
   const timelineLabel = () => document.getElementById('timeline-time');
@@ -16,6 +17,32 @@ window.BlackbirdMissionControls = (() => {
     document.querySelectorAll('[data-mode]').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.mode === (enabled ? 'playback' : 'live'));
     });
+  };
+
+  const installKeyboardHandler = () => {
+    if (keyHandler) {
+      window.removeEventListener('keydown', keyHandler);
+    }
+    keyHandler = async (event) => {
+      const tagName = (event.target?.tagName || '').toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+        return;
+      }
+      if (event.code === 'Space') {
+        event.preventDefault();
+        if (playbackMode) {
+          return;
+        }
+        await onCommand('pause');
+      }
+      if (event.key.toLowerCase() === 'r') {
+        await onCommand('resume');
+      }
+      if (event.key.toLowerCase() === 's') {
+        await onCommand('start');
+      }
+    };
+    window.addEventListener('keydown', keyHandler, { passive: false });
   };
 
   const bind = (handlers) => {
@@ -48,6 +75,15 @@ window.BlackbirdMissionControls = (() => {
     document.getElementById('playback-speed').addEventListener('change', (event) => {
       playbackSpeed = Number(event.target.value);
     });
+
+    installKeyboardHandler();
+  };
+
+  const teardown = () => {
+    if (keyHandler) {
+      window.removeEventListener('keydown', keyHandler);
+      keyHandler = null;
+    }
   };
 
   const updateTimeline = (timestamp, maxValue = 120) => {
@@ -56,5 +92,5 @@ window.BlackbirdMissionControls = (() => {
     timelineLabel().textContent = `t=${Number(val).toFixed(1)}s`;
   };
 
-  return { bind, setPlaybackMode, updateTimeline };
+  return { bind, setPlaybackMode, updateTimeline, teardown };
 })();

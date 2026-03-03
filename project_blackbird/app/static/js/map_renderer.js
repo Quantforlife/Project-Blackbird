@@ -6,10 +6,30 @@ window.BlackbirdMapRenderer = (() => {
   const defectLayer = L.layerGroup();
   const scannedLayer = L.layerGroup();
   let lastPoint = null;
+  let animationFrame = null;
+  let destroyed = false;
+
+  const OSM_TILE = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const SAT_TILE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
   const init = () => {
-    map = L.map('liveMap', { zoomControl: true }).setView([37.7749, -122.4194], 18);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21 }).addTo(map);
+    destroyed = false;
+    map = L.map('liveMap', { zoomControl: true, minZoom: 16, maxZoom: 21 }).setView([37.7749, -122.4194], 18);
+    const fallback = L.tileLayer(OSM_TILE, {
+      maxZoom: 21,
+      attribution: '&copy; OpenStreetMap contributors',
+    });
+    const satellite = L.tileLayer(SAT_TILE, {
+      maxZoom: 21,
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+    });
+    satellite.on('tileerror', () => {
+      if (!map.hasLayer(fallback)) {
+        fallback.addTo(map);
+      }
+    });
+    satellite.addTo(map);
+
     L.control.scale({ metric: true, imperial: false }).addTo(map);
 
     missionPath = L.polyline([], { color: '#00E5FF', weight: 2, opacity: 0.8 }).addTo(map);
@@ -32,31 +52,46 @@ window.BlackbirdMapRenderer = (() => {
   };
 
   const smoothPosition = (toLatLng) => {
+    if (destroyed || !droneMarker) {
+      return;
+    }
     if (!lastPoint) {
       lastPoint = toLatLng;
       droneMarker.setLatLng(toLatLng);
       return;
     }
 
-    const from = lastPoint;
-    const steps = 6;
-    for (let i = 1; i <= steps; i += 1) {
-      setTimeout(() => {
-        const lat = from[0] + ((toLatLng[0] - from[0]) * i) / steps;
-        const lon = from[1] + ((toLatLng[1] - from[1]) * i) / steps;
-        droneMarker.setLatLng([lat, lon]);
-      }, i * 50);
+    if (animationFrame) {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = null;
     }
+
+    const from = [...lastPoint];
+    const start = performance.now();
+    const duration = 250;
+    const animate = (now) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const lat = from[0] + ((toLatLng[0] - from[0]) * progress);
+      const lon = from[1] + ((toLatLng[1] - from[1]) * progress);
+      droneMarker.setLatLng([lat, lon]);
+      if (progress < 1 && !destroyed) {
+        animationFrame = requestAnimationFrame(animate);
+      }
+    };
+    animationFrame = requestAnimationFrame(animate);
     lastPoint = toLatLng;
   };
 
   const updateTelemetry = (payload) => {
+    if (destroyed || !map) {
+      return;
+    }
     const pos = [payload.latitude || 0, payload.longitude || 0];
     smoothPosition(pos);
 
     const points = missionPath.getLatLngs();
     points.push(pos);
-    missionPath.setLatLngs(points);
+    missionPath.setLatLngs(points.slice(-500));
 
     scannedLayer.clearLayers();
     points.slice(-20).forEach((pt) => {
@@ -81,8 +116,8 @@ window.BlackbirdMapRenderer = (() => {
   const updateDefect = (payload) => {
     const d = payload.detection || {};
     const geo = d.geo_location || {};
-    const severity = (d.defect_type || '').toLowerCase();
-    const color = severity === 'hotspot' ? '#FF3B3B' : (severity === 'crack' ? '#FFB020' : '#00E5FF');
+    const defectType = (d.defect_type || '').toLowerCase();
+    const color = defectType === 'hotspot' ? '#FF3B3B' : (defectType === 'crack' ? '#FFB020' : '#00E5FF');
     const marker = L.circleMarker([geo.latitude, geo.longitude], {
       radius: 6,
       color,
@@ -93,5 +128,17 @@ window.BlackbirdMapRenderer = (() => {
     marker.bindPopup(`${d.panel_id} ${d.defect_type}`);
   };
 
-  return { init, updateTelemetry, updateProgress, updateDefect };
+  const teardown = () => {
+    destroyed = true;
+    if (animationFrame) {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+    }
+    if (map) {
+      map.remove();
+      map = null;
+    }
+  };
+
+  return { init, updateTelemetry, updateProgress, updateDefect, teardown };
 })();

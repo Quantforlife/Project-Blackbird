@@ -240,3 +240,20 @@ body {
     width: 160px;
   }
 }
+
+#connection-status[data-status="connected"] {
+  color: var(--accent-green);
+}
+
+#connection-status[data-status="disconnected"],
+#connection-status[data-status="degraded"] {
+  color: var(--critical-red);
+}
+
+#connection-status[data-status="sse"] {
+  color: var(--warn-amber);
+}
+
+.terminal-body {
+  pointer-events: none;
+}

@@ -3,18 +3,48 @@ window.BlackbirdSocketClient = (() => {
   let eventSource = null;
   const listeners = new Map();
   let initialized = false;
+  let sseStarted = false;
 
-  const attachSocketListeners = () => {
+  const emitLocal = (eventName, payload) => {
+    const callbacks = listeners.get(eventName) || [];
+    callbacks.forEach((cb) => cb(payload));
+  };
+
+  const setStatus = (status) => {
+    emitLocal('connection_status', { status });
+  };
+
+  const bindSocketEvents = () => {
+    if (!socket) {
+      return;
+    }
     listeners.forEach((callbacks, eventName) => {
-      callbacks.forEach((cb) => socket.on(eventName, cb));
+      callbacks.forEach((cb) => {
+        socket.off(eventName, cb);
+        socket.on(eventName, cb);
+      });
+    });
+    socket.off('connect');
+    socket.on('connect', () => setStatus('connected'));
+    socket.off('disconnect');
+    socket.on('disconnect', () => setStatus('disconnected'));
+    socket.off('connect_error');
+    socket.on('connect_error', () => {
+      setStatus('degraded');
+      fallbackToSSE();
     });
   };
 
   const fallbackToSSE = () => {
-    if (eventSource) {
+    if (sseStarted) {
       return;
     }
+    sseStarted = true;
+    if (eventSource) {
+      eventSource.close();
+    }
     eventSource = new EventSource('/realtime/stream');
+    setStatus('sse');
     eventSource.addEventListener('telemetry', (event) => {
       const payload = JSON.parse(event.data);
       emitLocal('telemetry_update', {
@@ -49,11 +79,7 @@ window.BlackbirdSocketClient = (() => {
         });
       });
     });
-  };
-
-  const emitLocal = (eventName, payload) => {
-    const callbacks = listeners.get(eventName) || [];
-    callbacks.forEach((cb) => cb(payload));
+    eventSource.onerror = () => setStatus('disconnected');
   };
 
   const init = () => {
@@ -64,10 +90,7 @@ window.BlackbirdSocketClient = (() => {
 
     if (window.io) {
       socket = window.io({ transports: ['websocket'], reconnection: true, reconnectionAttempts: Infinity });
-      attachSocketListeners();
-      socket.on('connect_error', () => {
-        fallbackToSSE();
-      });
+      bindSocketEvents();
       return;
     }
     fallbackToSSE();
@@ -79,6 +102,7 @@ window.BlackbirdSocketClient = (() => {
       callbacks.push(callback);
       listeners.set(eventName, callbacks);
       if (socket) {
+        socket.off(eventName, callback);
         socket.on(eventName, callback);
       }
     }
@@ -93,5 +117,20 @@ window.BlackbirdSocketClient = (() => {
     }
   };
 
-  return { init, on, off };
+  const destroy = () => {
+    listeners.clear();
+    initialized = false;
+    sseStarted = false;
+    if (socket) {
+      socket.removeAllListeners();
+      socket.disconnect();
+      socket = null;
+    }
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  };
+
+  return { init, on, off, destroy };
 })();

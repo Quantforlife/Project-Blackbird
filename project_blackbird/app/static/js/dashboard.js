@@ -2,6 +2,7 @@
   const state = {
     detections: new Map(),
     lastWaypoint: null,
+    initialized: false,
   };
 
   const kpi = {
@@ -43,6 +44,15 @@
     updateKpi(kpi.defects, String(state.detections.size));
   };
 
+  const setConnectionStatus = ({ status }) => {
+    const node = document.getElementById('connection-status');
+    if (!node) {
+      return;
+    }
+    node.textContent = status.toUpperCase();
+    node.dataset.status = status;
+  };
+
   const onTelemetry = (payload) => {
     BlackbirdMapRenderer.updateTelemetry(payload);
     updateKpi(kpi.battery, `${Math.round(payload.battery || 0)}%`);
@@ -82,20 +92,32 @@
     });
   };
 
+  const events = {
+    telemetry_update: onTelemetry,
+    frame_update: onFrame,
+    detection_confirmed: onDetection,
+    mission_progress: BlackbirdMapRenderer.updateProgress,
+    terminal_event: BlackbirdTerminalConsole.pushEvent,
+    mission_complete: onMissionComplete,
+    connection_status: setConnectionStatus,
+  };
+
   const bindSocketEvents = () => {
-    BlackbirdSocketClient.on('telemetry_update', onTelemetry);
-    BlackbirdSocketClient.on('frame_update', onFrame);
-    BlackbirdSocketClient.on('detection_confirmed', onDetection);
-    BlackbirdSocketClient.on('mission_progress', BlackbirdMapRenderer.updateProgress);
-    BlackbirdSocketClient.on('terminal_event', BlackbirdTerminalConsole.pushEvent);
-    BlackbirdSocketClient.on('mission_complete', onMissionComplete);
+    Object.entries(events).forEach(([eventName, handler]) => BlackbirdSocketClient.on(eventName, handler));
+  };
+
+  const unbindSocketEvents = () => {
+    Object.entries(events).forEach(([eventName, handler]) => BlackbirdSocketClient.off(eventName, handler));
   };
 
   const commandHandlers = {
     onCommand: async (action) => {
       await fetch(`/realtime/command/${action}`, { method: 'POST' });
-      const labels = { start: 'Mission start', pause: 'Mission paused', resume: 'Mission resumed', end: 'Mission ended' };
+      const labels = { start: 'Mission start', pause: 'Mission paused', resume: 'Mission resumed', end: 'Mission ended', reset: 'Mission reset' };
       BlackbirdTerminalConsole.pushEvent({ timestamp: performance.now() / 1000, type: 'SYSTEM', message: labels[action] || action });
+      if (action === 'end' || action === 'reset') {
+        BlackbirdTerminalConsole.clear();
+      }
     },
     onMode: async (mode) => {
       await fetch(`/realtime/mode/${mode}`, { method: 'POST' });
@@ -130,7 +152,19 @@
     }, 800);
   };
 
+  const teardown = () => {
+    unbindSocketEvents();
+    BlackbirdMissionControls.teardown();
+    BlackbirdSocketClient.destroy();
+    BlackbirdMapRenderer.teardown();
+  };
+
   const init = () => {
+    if (state.initialized) {
+      return;
+    }
+    state.initialized = true;
+
     BlackbirdMapRenderer.init();
     BlackbirdVideoOverlay.init();
     BlackbirdTerminalConsole.init();
@@ -141,7 +175,8 @@
 
     const investorMode = document.getElementById('dashboard-root').dataset.investorDemo === '1';
     bootSequence(investorMode);
+    window.addEventListener('beforeunload', teardown, { once: true });
   };
 
-  window.addEventListener('DOMContentLoaded', init);
+  window.addEventListener('DOMContentLoaded', init, { once: true });
 })();
