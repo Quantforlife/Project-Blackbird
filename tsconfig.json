@@ -1,0 +1,264 @@
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { useStore } from '../store';
+import { getAssetHistory } from '../utils/api';
+import type { Asset, AssetInspection } from '../types';
+
+function scoreColor(s: number): number {
+  if (s >= 80) return 0x00e05a;
+  if (s >= 60) return 0xe0c000;
+  if (s >= 40) return 0xe8860a;
+  return 0xe02040;
+}
+
+function TwinScene({ assets, onSelect }: { assets: Asset[]; onSelect: (a: Asset) => void }) {
+  const mountRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!mountRef.current) return;
+    const W = mountRef.current.clientWidth, H = mountRef.current.clientHeight;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(W, H);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setClearColor(0x010507, 1);
+    mountRef.current.appendChild(renderer.domElement);
+
+    const scene  = new THREE.Scene();
+    scene.fog    = new THREE.FogExp2(0x010507, 0.01);
+    const camera = new THREE.PerspectiveCamera(55, W/H, 0.1, 1000);
+    camera.position.set(0, 45, 70);
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0x223344, 1.2));
+    const sun = new THREE.DirectionalLight(0x4488bb, 1.4);
+    sun.position.set(40, 60, 30);
+    scene.add(sun);
+    const fill = new THREE.PointLight(0x00c8e0, 0.6, 100);
+    fill.position.set(-30, 30, -20);
+    scene.add(fill);
+    const amber = new THREE.PointLight(0xe8860a, 0.3, 80);
+    amber.position.set(30, 10, 30);
+    scene.add(amber);
+
+    // Ground grid
+    const grid = new THREE.GridHelper(200, 50, 0x143245, 0x0b1e2e);
+    scene.add(grid);
+
+    // Assets
+    const meshMap = new Map<string, THREE.Object3D>();
+    if (assets.length > 0) {
+      const lats = assets.map(a => a.lat), lons = assets.map(a => a.lon);
+      const cLat = (Math.min(...lats)+Math.max(...lats))/2;
+      const cLon = (Math.min(...lons)+Math.max(...lons))/2;
+      const S = 5000;
+
+      assets.forEach(asset => {
+        const x = (asset.lon - cLon) * S;
+        const z = -(asset.lat - cLat) * S;
+        const c = scoreColor(asset.condition_score);
+        let obj: THREE.Object3D;
+
+        if (asset.asset_type === 'solar_panel') {
+          const geo = new THREE.BoxGeometry(3, 0.12, 5);
+          const mat = new THREE.MeshPhongMaterial({ color: c, emissive: c, emissiveIntensity: 0.08, shininess: 60 });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(x, 0.5, z);
+          mesh.rotation.x = -0.15;
+          obj = mesh;
+        } else if (asset.asset_type === 'wind_turbine') {
+          const grp = new THREE.Group();
+          const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 18, 8), new THREE.MeshPhongMaterial({ color: 0x334455 }));
+          tower.position.y = 9;
+          grp.add(tower);
+          const hub = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), new THREE.MeshPhongMaterial({ color: c }));
+          hub.position.y = 18;
+          grp.add(hub);
+          [0, 120, 240].forEach(deg => {
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, 9, 0.08), new THREE.MeshPhongMaterial({ color: 0x6688aa }));
+            blade.position.set(0, 4.5, 0);
+            blade.rotation.z = THREE.MathUtils.degToRad(deg);
+            hub.add(blade);
+          });
+          grp.position.set(x, 0, z);
+          obj = grp;
+        } else {
+          const grp = new THREE.Group();
+          const body = new THREE.Mesh(new THREE.ConeGeometry(1, 10, 4), new THREE.MeshPhongMaterial({ color: 0x2a3a4a }));
+          body.position.y = 5;
+          grp.add(body);
+          grp.position.set(x, 0, z);
+          obj = grp;
+        }
+
+        // Condition ring
+        const ring = new THREE.Mesh(new THREE.RingGeometry(2.5, 3, 20), new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide, transparent: true, opacity: 0.4 }));
+        ring.rotation.x = -Math.PI/2;
+        ring.position.set(x, 0.05, z);
+        scene.add(ring);
+
+        obj.userData.assetId = asset.id;
+        scene.add(obj);
+        meshMap.set(asset.id, obj);
+      });
+    }
+
+    // Raycaster
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const onClick = (e: MouseEvent) => {
+      const rect = mountRef.current!.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / W) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / H) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects([...meshMap.values()], true);
+      if (hits.length > 0) {
+        let obj = hits[0].object as THREE.Object3D;
+        while (obj && !obj.userData.assetId) obj = obj.parent!;
+        if (obj?.userData.assetId) {
+          const asset = assets.find(a => a.id === obj.userData.assetId);
+          if (asset) onSelect(asset);
+        }
+      }
+    };
+    renderer.domElement.addEventListener('click', onClick);
+
+    // Orbit
+    let angle = 0, turbineAngle = 0;
+    let animId: number;
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      angle += 0.004;
+      turbineAngle += 0.04;
+      camera.position.set(Math.cos(angle)*70, 45, Math.sin(angle)*70);
+      camera.lookAt(0, 5, 0);
+      scene.traverse(obj => {
+        if (obj.name === 'blade') obj.rotation.z += 0.04;
+      });
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    const onResize = () => {
+      if (!mountRef.current) return;
+      renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+      camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+      camera.updateProjectionMatrix();
+    };
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      renderer.domElement.removeEventListener('click', onClick);
+      window.removeEventListener('resize', onResize);
+      renderer.dispose();
+      if (mountRef.current?.contains(renderer.domElement)) mountRef.current.removeChild(renderer.domElement);
+    };
+  }, [assets, onSelect]);
+
+  return <div ref={mountRef} style={{ width:'100%', height:'100%', cursor:'pointer' }} />;
+}
+
+export default function DigitalTwin() {
+  const { assets } = useStore();
+  const [selected, setSelected]   = useState<Asset | null>(null);
+  const [history, setHistory]     = useState<AssetInspection[]>([]);
+
+  useEffect(() => {
+    if (!selected) return;
+    getAssetHistory(selected.id).then(setHistory).catch(() => {});
+  }, [selected?.id]);
+
+  const healthy  = assets.filter(a => a.condition_score >= 80).length;
+  const degraded = assets.filter(a => a.condition_score < 80 && a.condition_score >= 50).length;
+  const critical = assets.filter(a => a.condition_score < 50).length;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:12, height:'calc(100vh - 94px)' }}>
+      <div className="page-grid-4" style={{ flexShrink:0 }}>
+        <div className="stat-card"><div className="stat-val">{assets.length}</div><div className="stat-label">Total Assets</div></div>
+        <div className="stat-card green"><div className="stat-val text-green">{healthy}</div><div className="stat-label">Nominal ≥80</div></div>
+        <div className="stat-card yellow"><div className="stat-val text-yellow">{degraded}</div><div className="stat-label">Degraded</div></div>
+        <div className="stat-card red"><div className="stat-val text-red">{critical}</div><div className="stat-label">Critical</div></div>
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 270px', gap:12, flex:1, minHeight:0 }}>
+        <div style={{ border:'1px solid var(--seam)', clipPath:'var(--clip-md)', overflow:'hidden', position:'relative' }}>
+          <div style={{ position:'absolute', bottom:10, left:10, zIndex:10, display:'flex', gap:12, flexWrap:'wrap' }}>
+            {[['var(--green)','Nominal'],['var(--yellow)','Degraded'],['var(--amber)','Poor'],['var(--red)','Critical']].map(([c,l])=>(
+              <div key={l} style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(3,12,16,0.85)', padding:'3px 8px', border:'1px solid var(--seam)' }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', background:c }} />
+                <span style={{ fontFamily:'var(--f-mono)', fontSize:8, color:'var(--text-mid)', letterSpacing:1 }}>{l}</span>
+              </div>
+            ))}
+          </div>
+          <TwinScene assets={assets} onSelect={setSelected} />
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:10, overflowY:'auto' }}>
+          {selected ? (
+            <>
+              <div className="card">
+                <div style={{ marginBottom:10 }}>
+                  <div style={{ fontWeight:800, fontSize:16, letterSpacing:1 }}>{selected.name}</div>
+                  <div style={{ fontSize:8, color:'var(--text-lo)', letterSpacing:2, marginTop:2 }}>{selected.asset_type.replace(/_/g,' ').toUpperCase()}</div>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                  <div style={{ flex:1, height:6, background:'var(--hull)' }}>
+                    <div style={{ width:`${selected.condition_score}%`, height:'100%', background:selected.condition_score>=80?'var(--green)':selected.condition_score>=50?'var(--yellow)':'var(--red)' }} />
+                  </div>
+                  <span className="mono" style={{ fontSize:18, fontWeight:700 }}>{selected.condition_score.toFixed(0)}</span>
+                </div>
+                {[['Lat', selected.lat.toFixed(5)], ['Lon', selected.lon.toFixed(5)], ['Elevation', `${selected.elevation}m`]].map(([k,v])=>(
+                  <div key={k as string} className="tac-row">
+                    <span className="tac-key">{k}</span><span className="tac-val">{v}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="card" style={{ flex:1 }}>
+                <div className="card-title">Inspection History</div>
+                {history.length===0 && <div style={{ fontSize:10, color:'var(--text-lo)', letterSpacing:2 }}>NO HISTORY</div>}
+                {history.map(h=>(
+                  <div key={h.id} style={{ padding:'7px 0', borderBottom:'1px solid rgba(20,50,69,0.4)' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:2 }}>
+                      <span style={{ fontSize:11 }}>Score: <strong style={{ color:h.condition_score>=80?'var(--green)':h.condition_score>=50?'var(--yellow)':'var(--red)' }}>{h.condition_score?.toFixed(0)}</strong></span>
+                      <span style={{ fontSize:9, color:'var(--text-lo)' }}>{new Date(h.inspected_at).toLocaleDateString()}</span>
+                    </div>
+                    <div style={{ fontSize:9, color:'var(--red)', fontFamily:'var(--f-mono)' }}>{h.defect_count} DEFECTS</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="card" style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <div style={{ textAlign:'center', color:'var(--text-lo)' }}>
+                <div style={{ fontSize:36, marginBottom:8 }}>◬</div>
+                <div style={{ fontSize:9, letterSpacing:3 }}>SELECT ASSET IN 3D VIEW</div>
+              </div>
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-title">Asset Registry</div>
+            <div style={{ maxHeight:260, overflowY:'auto' }}>
+              {assets.map(a => {
+                const c = a.condition_score>=80?'var(--green)':a.condition_score>=50?'var(--yellow)':'var(--red)';
+                return (
+                  <div key={a.id} onClick={()=>setSelected(a)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 8px', cursor:'pointer', background:selected?.id===a.id?'var(--amber-dim)':'transparent', borderLeft:`2px solid ${selected?.id===a.id?'var(--amber)':'transparent'}` }}>
+                    <span style={{ fontSize:11 }}>{a.name}</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <div style={{ width:40, height:3, background:'var(--hull)' }}>
+                        <div style={{ width:`${a.condition_score}%`, height:'100%', background:c }} />
+                      </div>
+                      <span className="mono" style={{ fontSize:10, color:c, minWidth:26 }}>{a.condition_score.toFixed(0)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

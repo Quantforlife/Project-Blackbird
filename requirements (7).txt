@@ -1,0 +1,236 @@
+"""
+Report generation task — produces PDF mission report using ReportLab.
+"""
+import os
+import uuid
+import logging
+from datetime import datetime
+from typing import Optional
+
+from app.tasks.celery_app import celery_app
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name="generate_report", bind=True)
+def generate_report(self, mission_id: str) -> dict:
+    """Generate a PDF mission report."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.models.models import Mission, Image, Detection, AssetInspection, Asset
+
+    engine = create_engine(settings.sync_database_url)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    try:
+        mission = db.query(Mission).filter(Mission.id == mission_id).first()
+        if not mission:
+            return {"status": "error", "message": "Mission not found"}
+
+        images = db.query(Image).filter(Image.mission_id == mission_id).all()
+        image_ids = [img.id for img in images]
+
+        detections = []
+        if image_ids:
+            detections = db.query(Detection).filter(
+                Detection.image_id.in_(image_ids)
+            ).all()
+
+        inspections = db.query(AssetInspection).filter(
+            AssetInspection.mission_id == mission_id
+        ).all()
+
+        asset_ids = list({i.asset_id for i in inspections})
+        assets = db.query(Asset).filter(Asset.id.in_(asset_ids)).all() if asset_ids else []
+
+        # Generate PDF
+        reports_dir = os.path.join(settings.upload_dir, "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        filename = f"report_{mission_id[:8]}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
+        filepath = os.path.join(reports_dir, filename)
+
+        _build_pdf(filepath, mission, images, detections, assets, inspections)
+
+        logger.info(f"Report generated: {filepath}")
+        return {"status": "ok", "filepath": filepath, "filename": filename}
+
+    except Exception as exc:
+        logger.error(f"Report generation failed: {exc}")
+        raise
+    finally:
+        db.close()
+
+
+def _build_pdf(filepath, mission, images, detections, assets, inspections):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        HRFlowable, PageBreak,
+    )
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+    doc = SimpleDocTemplate(
+        filepath,
+        pagesize=A4,
+        leftMargin=2*cm, rightMargin=2*cm,
+        topMargin=2*cm, bottomMargin=2*cm,
+    )
+    styles = getSampleStyleSheet()
+
+    # Custom styles
+    title_style = ParagraphStyle("title", fontSize=22, fontName="Helvetica-Bold",
+                                  textColor=colors.HexColor("#0a1628"),
+                                  spaceAfter=6, alignment=TA_LEFT)
+    h2_style    = ParagraphStyle("h2", fontSize=14, fontName="Helvetica-Bold",
+                                  textColor=colors.HexColor("#00d4ff"),
+                                  spaceAfter=4, spaceBefore=12)
+    body_style  = ParagraphStyle("body", fontSize=10, fontName="Helvetica",
+                                  textColor=colors.HexColor("#333333"), spaceAfter=4)
+    small_style = ParagraphStyle("small", fontSize=8, fontName="Helvetica",
+                                  textColor=colors.grey)
+
+    story = []
+
+    # ── Header ──────────────────────────────────────────────────────────
+    story.append(Paragraph("PROJECT BLACKBIRD", ParagraphStyle(
+        "brand", fontSize=10, fontName="Helvetica",
+        textColor=colors.HexColor("#00d4ff"), letterSpacing=4,
+    )))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(f"Mission Report: {mission.name}", title_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#00d4ff")))
+    story.append(Spacer(1, 8))
+
+    # Mission metadata table
+    meta_data = [
+        ["Mission ID",  mission.id[:16] + "…"],
+        ["Site",        mission.site_name or "N/A"],
+        ["Status",      mission.status.upper()],
+        ["Started",     str(mission.started_at)[:19] if mission.started_at else "N/A"],
+        ["Completed",   str(mission.completed_at)[:19] if mission.completed_at else "N/A"],
+        ["Waypoints",   str(len(mission.waypoints))],
+        ["Images",      str(len(images))],
+        ["Defects",     str(len(detections))],
+    ]
+    meta_table = Table(meta_data, colWidths=[4*cm, 12*cm])
+    meta_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f4f8")),
+        ("FONTNAME",   (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE",   (0, 0), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor("#f9fbfc")]),
+        ("GRID",       (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+        ("PADDING",    (0, 0), (-1, -1), 6),
+    ]))
+    story.append(meta_table)
+    story.append(Spacer(1, 16))
+
+    # ── Summary KPIs ─────────────────────────────────────────────────────
+    story.append(Paragraph("Mission Summary", h2_style))
+    severity_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
+    for d in detections:
+        severity_counts[d.severity.value] = severity_counts.get(d.severity.value, 0) + 1
+
+    kpi_data = [
+        ["KPI", "Value"],
+        ["Total Images Captured",  str(len(images))],
+        ["Total Defects Detected", str(len(detections))],
+        ["Low Severity",           str(severity_counts["low"])],
+        ["Medium Severity",        str(severity_counts["medium"])],
+        ["High Severity",          str(severity_counts["high"])],
+        ["Critical Severity",      str(severity_counts["critical"])],
+        ["Assets Inspected",       str(len(set(i.asset_id for i in inspections)))],
+    ]
+    kpi_table = Table(kpi_data, colWidths=[8*cm, 8*cm])
+    kpi_table.setStyle(TableStyle([
+        ("BACKGROUND",   (0, 0), (-1, 0), colors.HexColor("#0a1628")),
+        ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
+        ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",     (0, 0), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fbfc")]),
+        ("GRID",         (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+        ("PADDING",      (0, 0), (-1, -1), 6),
+        ("ALIGN",        (1, 0), (1, -1), "CENTER"),
+    ]))
+    story.append(kpi_table)
+    story.append(Spacer(1, 16))
+
+    # ── Asset Condition Table ─────────────────────────────────────────────
+    if assets:
+        story.append(Paragraph("Asset Condition Summary", h2_style))
+        asset_header = ["Asset Name", "Type", "Condition", "Defects"]
+        asset_rows = [asset_header]
+        for asset in assets:
+            insp_list = [i for i in inspections if i.asset_id == asset.id]
+            defect_count = sum(i.defect_count for i in insp_list)
+            score = asset.condition_score
+            score_color = (
+                "🔴 Critical" if score < 40 else
+                "🟠 Poor" if score < 60 else
+                "🟡 Fair" if score < 80 else
+                "🟢 Good"
+            )
+            asset_rows.append([
+                asset.name,
+                asset.asset_type.value.replace("_", " ").title(),
+                f"{score:.1f}/100",
+                str(defect_count),
+            ])
+        asset_table = Table(asset_rows, colWidths=[5*cm, 4*cm, 4*cm, 3*cm])
+        asset_table.setStyle(TableStyle([
+            ("BACKGROUND",   (0, 0), (-1, 0), colors.HexColor("#0a1628")),
+            ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0, 0), (-1, -1), 8),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fbfc")]),
+            ("GRID",         (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+            ("PADDING",      (0, 0), (-1, -1), 5),
+        ]))
+        story.append(asset_table)
+        story.append(Spacer(1, 16))
+
+    # ── Defect Gallery (text) ─────────────────────────────────────────────
+    if detections:
+        story.append(PageBreak())
+        story.append(Paragraph("Defect Log", h2_style))
+        det_header = ["#", "Label", "Severity", "Confidence", "Image ID"]
+        det_rows = [det_header]
+        for i, det in enumerate(detections[:50], 1):
+            det_rows.append([
+                str(i),
+                det.label.replace("_", " ").title(),
+                det.severity.value.upper(),
+                f"{det.confidence:.1%}",
+                det.image_id[:12] + "…",
+            ])
+        det_table = Table(det_rows, colWidths=[1*cm, 5*cm, 3*cm, 3*cm, 4*cm])
+        severity_colors = {
+            "LOW":      colors.HexColor("#e8f5e9"),
+            "MEDIUM":   colors.HexColor("#fff8e1"),
+            "HIGH":     colors.HexColor("#fce4ec"),
+            "CRITICAL": colors.HexColor("#ff1744"),
+        }
+        det_style = [
+            ("BACKGROUND",   (0, 0), (-1, 0), colors.HexColor("#0a1628")),
+            ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0, 0), (-1, -1), 8),
+            ("GRID",         (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+            ("PADDING",      (0, 0), (-1, -1), 4),
+        ]
+        det_table.setStyle(TableStyle(det_style))
+        story.append(det_table)
+
+    # ── Footer ───────────────────────────────────────────────────────────
+    story.append(Spacer(1, 20))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e0e0e0")))
+    story.append(Paragraph(
+        f"Generated by Project Blackbird Alpha-1 · {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        small_style,
+    ))
+
+    doc.build(story)

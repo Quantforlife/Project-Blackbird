@@ -1,0 +1,132 @@
+import React, { useEffect, useState } from 'react';
+import { useStore } from '../store';
+import { getMissionImages, getImageDetections, getImageUrl } from '../utils/api';
+import type { DroneImage, Detection } from '../types';
+
+const SEV_COLOR: Record<string, string> = {
+  low: 'var(--green)', medium: 'var(--yellow)', high: 'var(--amber)', critical: 'var(--red)',
+};
+
+function DetOverlay({ detections, w, h }: { detections: Detection[]; w: number; h: number }) {
+  return (
+    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} viewBox={`0 0 ${w} ${h}`}>
+      {detections.map(d => {
+        const x = d.bbox_x * w, y = d.bbox_y * h, bw = d.bbox_w * w, bh = d.bbox_h * h;
+        const c = SEV_COLOR[d.severity];
+        return (
+          <g key={d.id}>
+            <rect x={x} y={y} width={bw} height={bh} fill="none" stroke={c} strokeWidth="1.5" />
+            <rect x={x} y={y - 14} width={Math.min(bw, 90)} height={12} fill={c} opacity={0.85} />
+            <text x={x + 3} y={y - 3} fill="#000" fontSize="8" fontFamily="Share Tech Mono,monospace" fontWeight="bold">
+              {d.label} {(d.confidence * 100).toFixed(0)}%
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function ImgCard({ image, onClick }: { image: DroneImage; onClick: () => void }) {
+  return (
+    <div onClick={onClick} style={{ background: 'var(--steel)', border: '1px solid var(--seam)', clipPath: 'var(--clip-sm)', overflow: 'hidden', cursor: 'pointer', transition: 'border-color 0.15s' }}
+      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--amber)')}
+      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--seam)')}>
+      <div style={{ position: 'relative', aspectRatio: '4/3', background: 'var(--abyss)' }}>
+        <img src={getImageUrl(image.id)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        <div style={{ position: 'absolute', top: 5, right: 5 }}>
+          <span className="badge" style={image.processed ? { background: 'var(--green-dim)', color: 'var(--green)' } : { background: 'var(--yellow-dim)', color: 'var(--yellow)' }}>
+            {image.processed ? 'ANALYSED' : 'PROCESSING'}
+          </span>
+        </div>
+      </div>
+      <div style={{ padding: '7px 10px' }}>
+        <div className="mono" style={{ fontSize: 9, color: 'var(--amber)' }}>{image.filename.slice(0, 18)}…</div>
+        <div style={{ fontSize: 9, color: 'var(--text-lo)', marginTop: 1 }}>{new Date(image.captured_at).toLocaleString()}</div>
+      </div>
+    </div>
+  );
+}
+
+export default function Inspections() {
+  const { missions } = useStore();
+  const [selectedMission, setMission] = useState('');
+  const [images, setImages]           = useState<DroneImage[]>([]);
+  const [selected, setSelected]       = useState<DroneImage | null>(null);
+  const [detections, setDetections]   = useState<Detection[]>([]);
+  const [loading, setLoading]         = useState(false);
+
+  useEffect(() => {
+    if (!selectedMission) return;
+    setLoading(true);
+    getMissionImages(selectedMission).then(setImages).finally(() => setLoading(false));
+  }, [selectedMission]);
+
+  useEffect(() => {
+    if (!selected) return;
+    getImageDetections(selected.id).then(setDetections);
+  }, [selected?.id]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="card" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ fontSize: 8, letterSpacing: 2, color: 'var(--text-lo)' }}>MISSION</div>
+        <select value={selectedMission} onChange={e => setMission(e.target.value)} style={{ flex: 1, clipPath: 'var(--clip-sm)' }}>
+          <option value="">Select mission…</option>
+          {missions.map(m => <option key={m.id} value={m.id}>{m.name} ({m.status})</option>)}
+        </select>
+        <div style={{ fontSize: 10, color: 'var(--text-lo)', fontFamily: 'var(--f-mono)' }}>{images.length} CAPTURES</div>
+      </div>
+
+      {selected ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 12 }}>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--seam)' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setSelected(null); setDetections([]); }}>← BACK</button>
+              <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--amber)', letterSpacing: 1 }}>{selected.filename}</div>
+            </div>
+            <div style={{ position: 'relative', background: 'var(--abyss)' }}>
+              <img src={getImageUrl(selected.id)} alt="inspection" style={{ width: '100%', display: 'block' }} />
+              <DetOverlay detections={detections} w={selected.width_px || 640} h={selected.height_px || 480} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="card">
+              <div className="card-title">Capture Metadata</div>
+              {[['Drone', selected.drone_id.slice(0, 10)], ['Time', new Date(selected.captured_at).toLocaleString()],
+                ['Lat', selected.lat?.toFixed(5) ?? '—'], ['Lon', selected.lon?.toFixed(5) ?? '—'],
+                ['Altitude', `${selected.altitude_m?.toFixed(0)}m`], ['Heading', `${selected.heading_deg?.toFixed(0)}°`],
+                ['Resolution', `${selected.width_px}×${selected.height_px}`],
+              ].map(([k, v]) => (
+                <div key={k as string} className="tac-row">
+                  <span className="tac-key">{k}</span><span className="tac-val">{v}</span>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <div className="card-title">Detections ({detections.length})</div>
+              {detections.length === 0 && <div style={{ fontSize: 10, color: 'var(--text-lo)' }}>NO DEFECTS DETECTED</div>}
+              {detections.map(d => (
+                <div key={d.id} style={{ padding: '7px 0', borderBottom: '1px solid rgba(20,50,69,0.4)', borderLeft: `2px solid ${SEV_COLOR[d.severity]}`, paddingLeft: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600, fontSize: 11, color: SEV_COLOR[d.severity] }}>{d.label.replace(/_/g, ' ').toUpperCase()}</span>
+                    <span className="badge" style={{ background: 'rgba(0,0,0,0.3)', color: SEV_COLOR[d.severity] }}>{d.severity}</span>
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--text-lo)', fontFamily: 'var(--f-mono)' }}>CONF {(d.confidence * 100).toFixed(0)}% {d.is_manual ? '· MANUAL' : ''}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : loading ? (
+        <div className="loader">LOADING CAPTURES…</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
+          {images.map(img => <ImgCard key={img.id} image={img} onClick={() => setSelected(img)} />)}
+          {images.length === 0 && selectedMission && <div className="loader">NO CAPTURES FOR THIS MISSION</div>}
+          {!selectedMission && <div className="loader">SELECT A MISSION</div>}
+        </div>
+      )}
+    </div>
+  );
+}
