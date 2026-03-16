@@ -1,0 +1,78 @@
+# Project Blackbird — Railway deployment config
+# railway.toml
+
+[build]
+builder = "DOCKERFILE"
+
+[[services]]
+name = "postgres"
+source = "image"
+image = "timescale/timescaledb:latest-pg15"
+
+  [services.variables]
+  POSTGRES_USER     = "${{POSTGRES_USER}}"
+  POSTGRES_PASSWORD = "${{POSTGRES_PASSWORD}}"
+  POSTGRES_DB       = "${{POSTGRES_DB}}"
+
+  [services.volume]
+  mountPath = "/var/lib/postgresql/data"
+
+[[services]]
+name = "redis"
+source = "image"
+image = "redis:7-alpine"
+startCommand = "redis-server --appendonly yes"
+
+[[services]]
+name = "backend"
+source = "repo"
+rootDirectory = "backend"
+
+  [services.build]
+  buildCommand = "pip install -r requirements.txt"
+
+  [services.deploy]
+  startCommand = "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+  healthcheckPath = "/health"
+  healthcheckTimeout = 30
+
+  [services.variables]
+  DATABASE_URL      = "postgresql+asyncpg://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_TCP_PROXY_DOMAIN}}:${{RAILWAY_TCP_PROXY_PORT}}/${{POSTGRES_DB}}"
+  SYNC_DATABASE_URL = "postgresql://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_TCP_PROXY_DOMAIN}}:${{RAILWAY_TCP_PROXY_PORT}}/${{POSTGRES_DB}}"
+  REDIS_URL         = "redis://${{RAILWAY_REDIS_URL}}"
+  CELERY_BROKER_URL = "redis://${{RAILWAY_REDIS_URL}}/1"
+  DEBUG             = "false"
+  UPLOAD_DIR        = "/app/uploads"
+
+[[services]]
+name = "worker"
+source = "repo"
+rootDirectory = "backend"
+
+  [services.deploy]
+  startCommand = "celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2"
+
+  [services.variables]
+  SYNC_DATABASE_URL = "postgresql://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_TCP_PROXY_DOMAIN}}:${{RAILWAY_TCP_PROXY_PORT}}/${{POSTGRES_DB}}"
+  REDIS_URL         = "redis://${{RAILWAY_REDIS_URL}}"
+  CELERY_BROKER_URL = "redis://${{RAILWAY_REDIS_URL}}/1"
+
+[[services]]
+name = "simulation"
+source = "repo"
+rootDirectory = "simulation"
+
+  [services.variables]
+  BACKEND_URL = "https://${{RAILWAY_BACKEND_URL}}"
+  NUM_DRONES  = "3"
+
+[[services]]
+name = "frontend"
+source = "repo"
+rootDirectory = "frontend"
+
+  [services.build]
+  buildArgs = { REACT_APP_API_URL = "https://${{RAILWAY_BACKEND_URL}}", REACT_APP_WS_URL = "wss://${{RAILWAY_BACKEND_URL}}" }
+
+  [services.deploy]
+  startCommand = "nginx -g 'daemon off;'"
